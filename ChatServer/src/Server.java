@@ -1,21 +1,46 @@
 import java.io.BufferedReader;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.security.KeyStore;
 import java.util.ArrayList;
+
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLServerSocketFactory;
+import javax.net.ssl.SSLSocket;
 
 public class Server {
     private static int clientIdVal = 1;
     ArrayList<PrintWriter> clientWriter = new ArrayList<PrintWriter>();
+    SSLServerSocketFactory sslServerSocketFactory;
+    
+    public void initSSL() throws Exception {
+        String keyStoreName = "keystore.jks";
+        char[] keyStorePass = "keystore".toCharArray();
+
+        FileInputStream fin = new FileInputStream(keyStoreName);
+        
+        KeyStore keyStore = KeyStore.getInstance("JKS");
+        keyStore.load(fin, keyStorePass);
+        
+        KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance("SunX509");
+        keyManagerFactory.init(keyStore, keyStorePass);
+        
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(keyManagerFactory.getKeyManagers(), null, null);
+        
+        sslServerSocketFactory = sslContext.getServerSocketFactory();
+    }
     
     public class ClientHandler implements Runnable {
-        Socket clientSocket;
+        SSLSocket sslClientSocket;
         int clientId;
         
-        public ClientHandler(Socket socket, int id) {
-            clientSocket = socket;
+        public ClientHandler(SSLSocket socket, int id) {
+            sslClientSocket = socket;
             clientId = id;
         }
         
@@ -24,7 +49,7 @@ public class Server {
             BufferedReader br = null;
             
             try {
-                br = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                br = new BufferedReader(new InputStreamReader(sslClientSocket.getInputStream()));
                 
                 String line = "";
                 
@@ -62,14 +87,14 @@ public class Server {
     }
     
     private void start() {
-        ServerSocket serverSocket = null;
+        SSLServerSocket sslServerSocket = null;
         
         try {
-            serverSocket = new ServerSocket(5555);
+            sslServerSocket = (SSLServerSocket) sslServerSocketFactory.createServerSocket(5555);
 
             while (true) {
                 try {
-                    Socket clientSocket = serverSocket.accept();
+                    SSLSocket clientSocket = (SSLSocket) sslServerSocket.accept();
                     PrintWriter pr = new PrintWriter(clientSocket.getOutputStream());
                     clientWriter.add(pr);
                     
@@ -87,8 +112,8 @@ public class Server {
             e.printStackTrace();
         } finally {
             try {
-                if (serverSocket != null) {
-                    serverSocket.close();
+                if (sslServerSocket != null) {
+                    sslServerSocket.close();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -96,8 +121,9 @@ public class Server {
         }
     }
     
-    public static void main(String args[]) {
+    public static void main(String args[]) throws Exception {
         Server server = new Server();
+        server.initSSL();
         server.start();
     }
 }
